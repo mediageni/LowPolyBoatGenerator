@@ -2,7 +2,7 @@
 
 Create and export customizable low poly 3D boats and ships in your browser.
 
-**Live generator:** https://appsdesigner.nl/low-poly-boat-generator/
+**Live generator:** https://3d.mediageni.com/low-poly-boat-generator/
 
 Run locally with a static web server from this directory, then open its local URL in a browser. For example:
 
