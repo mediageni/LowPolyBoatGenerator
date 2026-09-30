@@ -7,6 +7,9 @@
 
 import * as THREE from "three";
 import { makeRng } from "@engine/rng.js";
+import { detailed } from "@engine/options.js";
+import { addBoatDetails } from "./details.js";
+import { tube as detailTube } from "@engine/geometry.js";
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -80,8 +83,52 @@ function buildHull(p, mats) {
     [t.hw, t.dy, t.z],
   );
   const g = new THREE.Group();
+  if (detailed(p))
+    for (const positions of [hull, deck])
+      for (let i = 0; i < positions.length; i += 9) {
+        for (let j = 0; j < 3; j++)
+          [positions[i + 3 + j], positions[i + 6 + j]] = [
+            positions[i + 6 + j],
+            positions[i + 3 + j],
+          ];
+      }
   g.add(meshFrom(hull, mats.hull));
-  g.add(meshFrom(deck, mats.deck));
+  if (detailed(p) && p.form === "open") {
+    // An open dinghy has an interior floor and inward-facing sides, not a deck cap.
+    const inside = [];
+    for (let i = 0; i < N; i++) {
+      const a = S[i],
+        b = S[i + 1],
+        ay = Math.max(a.by + p.draft * 0.24, p.freeboard * 0.12),
+        by = Math.max(b.by + p.draft * 0.24, p.freeboard * 0.12);
+      quad(
+        inside,
+        [-a.hw * 0.91, ay, a.z],
+        [-b.hw * 0.91, by, b.z],
+        [b.hw * 0.91, by, b.z],
+        [a.hw * 0.91, ay, a.z],
+      );
+      for (const side of [-1, 1]) {
+        const A = [side * a.hw * 0.97, a.dy, a.z],
+          B = [side * b.hw * 0.97, b.dy, b.z],
+          C = [side * b.hw * 0.91, by, b.z],
+          D = [side * a.hw * 0.91, ay, a.z];
+        if (side === 1) quad(inside, A, D, C, B);
+        else quad(inside, A, B, C, D);
+      }
+    }
+    g.add(meshFrom(inside, mats.deck));
+    for (let i = 0; i < N; i++)
+      for (const side of [-1, 1])
+        detailTube(
+          g,
+          mats.trim,
+          [side * S[i].hw, S[i].dy, S[i].z],
+          [side * S[i + 1].hw, S[i + 1].dy, S[i + 1].z],
+          p.beam * 0.025,
+        );
+  } else g.add(meshFrom(deck, mats.deck));
+  g.name = "Hull and deck";
   return g;
 }
 
@@ -92,18 +139,66 @@ const beamAt = (p, t) => station(p, t).hw * 2;
 // --- superstructures ----------------------------------------------------------
 // Heights are sized off the BEAM (a boat's beam is the natural scale), so a small
 // boat gets a small deckhouse and a wide ship a tall one — never a tower.
-function cabin(p, mats, { t, w, h, len, glass = true }) {
+function cabin(p, mats, { t, w, h, len, glass = true, rise = 0 }) {
   const g = new THREE.Group();
   const cz = lerp(-p.length / 2, p.length / 2, t);
-  const y = deckY(p, t);
+  const y = deckY(p, t) + rise;
+  g.name = "Cabin";
+  if (p.cabinOn === false) return g;
   g.add(box(w, h, len, mats.cabin, 0, y, cz));
-  if (glass)
+  if (glass && detailed(p)) {
+    const wy = y + h * 0.4,
+      wh = h * 0.42;
+    for (const side of [-1, 1]) {
+      g.add(
+        box(
+          w * 0.84,
+          wh,
+          0.02,
+          mats.glass,
+          0,
+          wy,
+          cz + side * (len / 2 + 0.012),
+        ),
+      );
+      g.add(
+        box(0.02, wh, len * 0.8, mats.glass, side * (w / 2 + 0.012), wy, cz),
+      );
+      for (const x of [-w * 0.42, 0, w * 0.42])
+        g.add(
+          box(
+            w * 0.025,
+            wh,
+            0.03,
+            mats.trim,
+            x,
+            wy,
+            cz + side * (len / 2 + 0.025),
+          ),
+        );
+      for (const z of [-len * 0.4, 0, len * 0.4])
+        g.add(
+          box(
+            0.03,
+            wh,
+            len * 0.025,
+            mats.trim,
+            side * (w / 2 + 0.025),
+            wy,
+            cz + z,
+          ),
+        );
+    }
+    g.add(box(w * 1.04, h * 0.07, len * 1.04, mats.cabin, 0, y + h, cz));
+  } else if (glass)
     g.add(box(w * 1.01, h * 0.42, len * 0.84, mats.glass, 0, y + h * 0.4, cz)); // window band
   return g;
 }
 
 function mastSail(p, mats, { t, height, boom }) {
   const g = new THREE.Group();
+  g.name = "Mast and sails";
+  if (p.mastOn === false) return g;
   const cz = lerp(-p.length / 2, p.length / 2, t),
     y = deckY(p, t);
   const mast = new THREE.Mesh(
@@ -113,7 +208,7 @@ function mastSail(p, mats, { t, height, boom }) {
   mast.position.set(0, y + height / 2, cz);
   mast.castShadow = true;
   g.add(mast);
-  if (boom) {
+  if (boom && p.sailsOn !== false) {
     const top = y + height * 0.92,
       foot = y + p.freeboard * 0.5 + 0.3;
     const sail = [];
@@ -163,6 +258,8 @@ function funnel(p, mats, { t, h, r }) {
 
 function containers(p, mats, r) {
   const g = new THREE.Group();
+  g.name = "Cargo";
+  if (p.cargoOn === false) return g;
   const dy = deckY(p, 0.5);
   const cl = p.length * 0.08,
     ch = p.beam * 0.4,
@@ -207,7 +304,7 @@ const FORMS = {
           0.42,
           mats.deck,
           0,
-          deckY(p, t) - p.freeboard * 0.4,
+          deckY(p, t) - p.freeboard * (detailed(p) ? 0.22 : 0.4),
           cz,
         ),
       );
@@ -250,6 +347,7 @@ const FORMS = {
         w: p.beam * 0.58,
         h: p.beam * 0.3,
         len: p.length * 0.2,
+        rise: detailed(p) ? p.beam * 0.34 : 0,
       }),
     );
     g.add(mastSail(p, mats, { t: 0.46, height: p.beam * 1.1, boom: false }));
@@ -285,6 +383,7 @@ export function buildBoat(p, mats) {
   const r = makeRng((p.seed ^ 0xb0a7c0de) >>> 0);
   g.add(buildHull(p, mats));
   (FORMS[p.form] || FORMS.sail)(g, p, mats, r);
+  addBoatDetails(g, p, mats, station);
 
   const box3 = new THREE.Box3().setFromObject(g);
   const size = new THREE.Vector3(),

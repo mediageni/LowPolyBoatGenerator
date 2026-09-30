@@ -8,13 +8,15 @@ import {
 } from "./params.js";
 import { STYLES } from "./styles.js";
 import { schemaFromSamples } from "@engine/state.js";
+import { std } from "@engine/materials.js";
+import { enrichBoat, BOAT_SCHEMA, BOAT_OPTIONS } from "./details.js";
 const samples = Object.keys(ARCHETYPES).flatMap((key) =>
   [0, 1, 42, 12345, 4294967295].map((seed) => paramsFromSeed(seed, key)),
 );
 export const adapter = {
   id: "boat",
   path: "low-poly-boat-generator",
-  label: "Low Poly Boat & Ship",
+  label: "Boat & Ship",
   noun: "boat",
   filePrefix: "boat",
   defaultLook: "harbor",
@@ -27,9 +29,17 @@ export const adapter = {
   paramsFromSeed,
   getDerived,
   setDerived,
-  schema: schemaFromSamples(samples, SLIDERS),
+  schema: schemaFromSamples(samples, SLIDERS, BOAT_SCHEMA),
+  enrich: enrichBoat,
+  legacyConfig: (params) => params?.detailVersion === undefined,
+  options: BOAT_OPTIONS,
+  optionsLabel: "Deck & parts",
+  firstType: "sailboat",
   build: buildBoat,
-  materials: (style, params) => style.materials(params),
+  materials: (style, params) => ({
+    ...style.materials(params),
+    rescue: std({ color: 0xef7951, roughness: 0.8 }),
+  }),
   paletteSlots: {
     hull: "body",
     deck: "accent",
