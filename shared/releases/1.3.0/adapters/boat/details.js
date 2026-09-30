@@ -26,6 +26,8 @@ export function enrichBoat(params, legacy = false) {
     lifebuoyOn: params.form !== "open",
     riggingOn: params.form === "sail",
     oarsOn: params.form === "open",
+    lifeboatsOn: true,
+    poolOn: true,
   };
 }
 export const BOAT_SCHEMA = {
@@ -41,6 +43,8 @@ export const BOAT_SCHEMA = {
       "lifebuoyOn",
       "riggingOn",
       "oarsOn",
+      "lifeboatsOn",
+      "poolOn",
     ].map((key) => [key, booleanRule]),
   ),
 };
@@ -61,6 +65,12 @@ export const BOAT_OPTIONS = [
   toggle("mastOn", "Mast", hasMast),
   toggle("sailsOn", "Sails", (p) => p.form === "sail" && p.mastOn),
   toggle("cargoOn", "Container cargo", (p) => p.form === "cargo"),
+  toggle(
+    "lifeboatsOn",
+    "Rescue boats",
+    (p) => p.form === "cruise" && p.cabinOn,
+  ),
+  toggle("poolOn", "Sun deck pool", (p) => p.form === "cruise" && p.cabinOn),
 ];
 export function addBoatDetails(root, p, mats, station) {
   if (!detailed(p)) return;

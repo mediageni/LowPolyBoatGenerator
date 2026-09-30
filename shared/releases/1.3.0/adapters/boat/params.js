@@ -65,8 +65,17 @@ export const ARCHETYPES = {
     draft: [1.1, 1.7],
     freeboard: [2.0, 3.0],
   },
+  cruise: {
+    label: "Cruise Ship",
+    form: "cruise",
+    length: [32, 42],
+    beam: [6.5, 9.5],
+    draft: [2.0, 3.2],
+    freeboard: [2.5, 3.8],
+  },
 };
 export const ARCHETYPE_KEYS = Object.keys(ARCHETYPES);
+const LEGACY_KEYS = ["rowboat", "sailboat", "fishing", "yacht", "cargo", "tug"];
 
 export const SLIDERS = [
   { key: "length", label: "Length", min: 3, max: 42, step: 0.5 },
@@ -92,9 +101,7 @@ const PARAM_KEYS = Object.keys(BASE);
 export function paramsFromSeed(seed, archetype) {
   const r = makeRng(seed);
   const key =
-    archetype && ARCHETYPES[archetype]
-      ? archetype
-      : rng.pick(r, ARCHETYPE_KEYS);
+    archetype && ARCHETYPES[archetype] ? archetype : rng.pick(r, LEGACY_KEYS);
   const a = { ...BASE, ...ARCHETYPES[key] };
   const p = { seed: seed >>> 0, archetype: key };
   for (const k of PARAM_KEYS) p[k] = sample(r, a[k]);

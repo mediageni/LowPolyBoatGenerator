@@ -10,6 +10,7 @@ import { makeRng } from "@engine/rng.js";
 import { detailed } from "@engine/options.js";
 import { addBoatDetails } from "./details.js";
 import { tube as detailTube } from "@engine/geometry.js";
+import { buildCruise } from "./cruise.js";
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -256,43 +257,88 @@ function funnel(p, mats, { t, h, r }) {
   return m;
 }
 
+// Interpolate the actual twelve-station mesh, so a footprint cannot overhang
+// a curved hull merely because the centre station was wide enough.
+export function hullSection(p, z) {
+  const t = clamp(z / p.length + 0.5, 0, 1),
+    i = Math.min(11, Math.floor(t * 12));
+  const a = station(p, i / 12),
+    b = station(p, (i + 1) / 12),
+    f = t * 12 - i;
+  return { hw: lerp(a.hw, b.hw, f), dy: lerp(a.dy, b.dy, f) };
+}
 function containers(p, mats, r) {
   const g = new THREE.Group();
   g.name = "Cargo";
   if (p.cargoOn === false) return g;
-  const dy = deckY(p, 0.5);
-  const cl = p.length * 0.08,
-    ch = p.beam * 0.4,
-    cw = p.beam * 0.26;
-  const startZ = -p.length * 0.16,
-    bayLen = p.length * 0.6;
-  const rows = Math.max(3, Math.round(bayLen / (cl + 0.3)));
-  const cols = Math.max(2, Math.round((p.beam * 0.82) / (cw + 0.2)));
-  const palette = mats.containers;
-  for (let rI = 0; rI < rows; rI++) {
-    const cz = startZ + rI * (cl + 0.3);
-    const stack = 1 + Math.floor(r() * 3);
-    for (let s = 0; s < stack; s++)
-      for (let c = 0; c < cols; c++) {
-        if (r() < 0.12) continue;
-        const cx = (c - (cols - 1) / 2) * (cw + 0.18);
-        g.add(
-          box(
-            cw,
-            ch,
-            cl,
-            palette[Math.floor(r() * palette.length)],
-            cx,
-            dy + s * (ch + 0.05),
-            cz,
-          ),
+  const cw = Math.min(p.beam * 0.22, p.length * 0.045),
+    cl = cw * 2.4,
+    ch = cw * 1.06;
+  const gap = cw * 0.06,
+    clearance = p.beam * 0.06;
+  const start = -p.length * 0.22,
+    end = p.length * 0.29;
+  const rows = Math.max(1, Math.floor((end - start + gap) / (cl + gap)));
+  const total = rows * cl + (rows - 1) * gap;
+  const first = (start + end - total) / 2 + cl / 2;
+  for (let row = 0; row < rows; row++) {
+    const z = first + row * (cl + gap),
+      low = z - cl / 2,
+      high = z + cl / 2;
+    const stations = [low, high];
+    for (let i = 0; i <= 12; i++) {
+      const zi = p.length * (i / 12 - 0.5);
+      if (zi > low && zi < high) stations.push(zi);
+    }
+    const sections = stations.map((zi) => hullSection(p, zi));
+    const halfWidth = Math.min(...sections.map((s) => s.hw)) - clearance;
+    const cols = Math.max(
+      1,
+      Math.min(4, Math.floor((halfWidth * 2 + gap) / (cw + gap))),
+    );
+    const width = Math.min(cw, halfWidth * 1.8);
+    const platformY = Math.max(...sections.map((s) => s.dy)) + p.beam * 0.015;
+    const minDeck = Math.min(...sections.map((s) => s.dy));
+    const bay = new THREE.Group();
+    bay.name = "Cargo bay " + (row + 1);
+    g.add(bay);
+    const deckWidth = cols * width + (cols - 1) * gap;
+    const pad = box(
+      deckWidth,
+      platformY - minDeck + 0.012,
+      cl,
+      mats.deck,
+      0,
+      minDeck - 0.012,
+      z,
+    );
+    pad.name = "Cargo support";
+    bay.add(pad);
+    for (let col = 0; col < cols; col++) {
+      const stack = 1 + Math.floor(r() * 3);
+      // A vacant slot stays vacant at every level: no unsupported upper boxes.
+      if (r() < 0.1 && col > 0) continue;
+      const x = (col - (cols - 1) / 2) * (width + gap);
+      for (let level = 0; level < stack; level++) {
+        const container = box(
+          width,
+          ch,
+          cl,
+          mats.containers[Math.floor(r() * mats.containers.length)],
+          x,
+          platformY + level * ch,
+          z,
         );
+        container.name = "Container";
+        bay.add(container);
       }
+    }
   }
   return g;
 }
 
 const FORMS = {
+  cruise(g, p, mats) { buildCruise(g, p, mats, hullSection); },
   open(g, p, mats) {
     // rowboat / dinghy: a few thwarts
     for (const t of [0.3, 0.5, 0.7]) {
